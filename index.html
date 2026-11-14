@@ -68,15 +68,18 @@
             width: 88vw;
             max-width: 360px;
             margin-bottom: 8px;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             background: #1e1e1e;
-            padding: 6px 10px;
+            padding: 6px 8px;
             border-radius: 8px;
             border: 1px solid #333;
         }
         .info-val {
             font-weight: bold;
             color: #2a9d8f;
+        }
+        .info-val.target {
+            color: #ffb703;
         }
         /* 座標を含めた盤面コンテナ */
         .board-wrapper {
@@ -180,17 +183,52 @@
             border: 3px solid #2a9d8f;
             border-radius: 50%;
         }
+        /* 最適解表示用のスタイル */
+        .cell.sol-step {
+            box-shadow: inset 0 0 0 3px #38bdf8;
+        }
+        .sol-badge {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: #0284c7;
+            color: #fff;
+            font-size: 0.65rem;
+            font-weight: 900;
+            padding: 1px 4px;
+            border-radius: 4px;
+            z-index: 4;
+            line-height: 1.1;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        }
         #message {
-            margin: 4px 0 8px 0;
-            font-size: 0.85rem;
+            margin: 4px 0 6px 0;
+            font-size: 0.82rem;
             font-weight: bold;
             color: #ffb703;
             min-height: 1.2rem;
             text-align: center;
+            width: 88vw;
+            max-width: 360px;
+            line-height: 1.4;
+        }
+        #solution-text {
+            display: none;
+            width: 88vw;
+            max-width: 360px;
+            background: #1e293b;
+            border: 1px solid #38bdf8;
+            color: #e0f2fe;
+            font-size: 0.75rem;
+            padding: 6px 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            text-align: center;
+            word-break: break-all;
         }
         .btn-container {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             width: 88vw;
             max-width: 360px;
         }
@@ -199,9 +237,9 @@
             background-color: #333;
             color: #fff;
             border: none;
-            padding: 10px 4px;
+            padding: 9px 2px;
             border-radius: 8px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: bold;
             cursor: pointer;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
@@ -217,6 +255,10 @@
             background-color: #3b4252;
             border: 1px solid #2a9d8f;
             color: #2a9d8f;
+        }
+        button.sol-active {
+            background-color: #0284c7;
+            color: #fff;
         }
     </style>
 </head>
@@ -234,7 +276,8 @@
     <div class="info-panel">
         <div>残り★: <span id="rem-targets" class="info-val">5</span>/5</div>
         <div>手数: <span id="move-count" class="info-val">0</span></div>
-        <div>最短記録: <span id="best-moves" class="info-val">--</span></div>
+        <div>目標: <span id="target-moves" class="info-val target">--</span>手</div>
+        <div>自己ベスト: <span id="best-moves" class="info-val">--</span></div>
     </div>
 
     <div class="board-wrapper">
@@ -246,33 +289,46 @@
     </div>
 
     <div id="message">緑のドット（または★）をタップして移動</div>
+    <div id="solution-text"></div>
 
     <div class="btn-container">
         <button id="guide-btn" class="action-btn guide-on" onclick="toggleGuide()">ガイド: ON</button>
+        <button id="sol-btn" class="action-btn" onclick="toggleSolution()">📖 最適解</button>
         <button class="action-btn primary" onclick="initGame()">新しい配置</button>
     </div>
 
     <script>
         const BOARD_SIZE = 8;
         const TARGET_TOTAL = 5;
+        const FILES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-        let mode = 'KNIGHT'; // 'KNIGHT' | 'BISHOP' | 'MIX'
-        let currentPiece = 'KNIGHT'; // 'KNIGHT' | 'BISHOP'
+        let mode = 'KNIGHT'; 
+        let currentPiece = 'KNIGHT'; 
         let pieceR = 4;
         let pieceC = 4;
-        let targets = []; // [{r, c}]
+        let targets = []; 
         let moveCount = 0;
         let showGuide = true;
         let stageClear = false;
+
+        // 初期状態と最適解の保持用
+        let initialStartR = 0;
+        let initialStartC = 0;
+        let initialTargets = [];
+        let optimalPath = []; // [{r, c, piece}]
+        let showingSolution = false;
 
         const boardEl = document.getElementById('board');
         const rankLabelsEl = document.getElementById('rank-labels');
         const fileLabelsEl = document.getElementById('file-labels');
         const remTargetsEl = document.getElementById('rem-targets');
         const moveCountEl = document.getElementById('move-count');
+        const targetMovesEl = document.getElementById('target-moves');
         const bestMovesEl = document.getElementById('best-moves');
         const messageEl = document.getElementById('message');
+        const solTextEl = document.getElementById('solution-text');
         const guideBtn = document.getElementById('guide-btn');
+        const solBtn = document.getElementById('sol-btn');
 
         const knightOffsets = [
             [-2, -1], [-2, 1], [-1, -2], [-1, 2],
@@ -282,6 +338,10 @@
             [-1, -1], [-1, 1], [1, -1], [1, 1]
         ];
 
+        function toCoord(r, c) {
+            return `${FILES[c]}${8 - r}`;
+        }
+
         function initCoordinates() {
             rankLabelsEl.innerHTML = '';
             fileLabelsEl.innerHTML = '';
@@ -290,10 +350,9 @@
                 div.textContent = i;
                 rankLabelsEl.appendChild(div);
             }
-            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
             for (let i = 0; i < 8; i++) {
                 const div = document.createElement('div');
-                div.textContent = letters[i];
+                div.textContent = FILES[i];
                 fileLabelsEl.appendChild(div);
             }
         }
@@ -321,156 +380,124 @@
         function initGame() {
             moveCount = 0;
             stageClear = false;
+            showingSolution = false;
+            solBtn.classList.remove('sol-active');
+            solTextEl.style.display = 'none';
+
             currentPiece = (mode === 'BISHOP') ? 'BISHOP' : 'KNIGHT';
 
-            // 初期位置をランダム決定
-            pieceR = Math.floor(Math.random() * BOARD_SIZE);
-            pieceC = Math.floor(Math.random() * BOARD_SIZE);
-            const startParity = (pieceR + pieceC) % 2;
+            // 確実に解が存在する配置を生成
+            let foundPath = null;
+            while (!foundPath) {
+                pieceR = Math.floor(Math.random() * BOARD_SIZE);
+                pieceC = Math.floor(Math.random() * BOARD_SIZE);
+                const startParity = (pieceR + pieceC) % 2;
 
-            // ターゲット5個を重複なく生成
-            targets = [];
-            while (targets.length < TARGET_TOTAL) {
-                const r = Math.floor(Math.random() * BOARD_SIZE);
-                const c = Math.floor(Math.random() * BOARD_SIZE);
-                if (r === pieceR && c === pieceC) continue;
-                if (targets.some(t => t.r === r && t.c === c)) continue;
+                targets = [];
+                while (targets.length < TARGET_TOTAL) {
+                    const r = Math.floor(Math.random() * BOARD_SIZE);
+                    const c = Math.floor(Math.random() * BOARD_SIZE);
+                    if (r === pieceR && c === pieceC) continue;
+                    if (targets.some(t => t.r === r && t.c === c)) continue;
+                    if (mode === 'BISHOP' && (r + c) % 2 !== startParity) continue;
+                    targets.push({ r, c });
+                }
 
-                // BISHOPモード時は開始マスと同じ色のマスのみに配置
-                if (mode === 'BISHOP' && (r + c) % 2 !== startParity) continue;
-
-                targets.push({ r, c });
+                foundPath = findOptimalPath(pieceR, pieceC, targets, currentPiece, mode);
             }
+
+            initialStartR = pieceR;
+            initialStartC = pieceC;
+            initialTargets = targets.map(t => ({ ...t }));
+            optimalPath = foundPath;
+
+            targetMovesEl.textContent = optimalPath.length;
 
             updateBestDisplay();
             updateStatusMessage();
             renderBoard();
         }
 
-        function updateStatusMessage() {
-            if (stageClear) return;
-            if (mode === 'MIX') {
-                const pName = currentPiece === 'KNIGHT' ? '♞ナイト（L字）' : '♝ビショップ（斜め）';
-                messageEl.textContent = `次は ${pName} の動きで移動！`;
-            } else if (mode === 'KNIGHT') {
-                messageEl.textContent = '♞ ナイトのL字移動で★をすべて回収しよう';
-            } else {
-                messageEl.textContent = '♝ ビショップの斜め移動で★をすべて回収しよう';
-            }
-        }
+        // BFS（幅優先探索）で全★回収の最短経路そのものを求める
+        function findOptimalPath(startR, startC, targetList, initialPiece, currentMode) {
+            let queue = [{
+                r: startR,
+                c: startC,
+                piece: initialPiece,
+                mask: 0,
+                path: []
+            }];
+            let visited = new Set();
+            let fullMask = (1 << targetList.length) - 1;
 
-        function getValidMoves(r, c, pieceType) {
-            const moves = [];
-            if (pieceType === 'KNIGHT') {
-                for (const [dr, dc] of knightOffsets) {
-                    const nr = r + dr;
-                    const nc = c + dc;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
-                        moves.push([nr, nc]);
-                    }
+            visited.add(`${startR},${startC},${initialPiece},0`);
+
+            let iterations = 0;
+            while (queue.length > 0 && iterations < 35000) {
+                let curr = queue.shift();
+                iterations++;
+
+                if (curr.mask === fullMask) {
+                    return curr.path;
                 }
-            } else {
-                for (const [dr, dc] of bishopDirs) {
-                    let nr = r + dr;
-                    let nc = c + dc;
-                    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
-                        moves.push([nr, nc]);
-                        nr += dr;
-                        nc += dc;
-                    }
-                }
-            }
-            return moves;
-        }
 
-        function renderBoard() {
-            boardEl.innerHTML = '';
-            const validMoves = stageClear ? [] : getValidMoves(pieceR, pieceC, currentPiece);
+                let validMoves = getValidMoves(curr.r, curr.c, curr.piece);
 
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                for (let c = 0; c < BOARD_SIZE; c++) {
-                    const cell = document.createElement('div');
-                    cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
-
-                    if (r === pieceR && c === pieceC) {
-                        if (currentPiece === 'KNIGHT') {
-                            cell.classList.add('current-knight');
-                            cell.textContent = '♞';
-                        } else {
-                            cell.classList.add('current-bishop');
-                            cell.textContent = '♝';
-                        }
-                    } else {
-                        if (targets.some(t => t.r === r && t.c === c)) {
-                            cell.classList.add('target');
-                        }
-                        if (showGuide && validMoves.some(m => m[0] === r && m[1] === c)) {
-                            cell.classList.add('valid-move');
-                        }
+                for (let [nr, nc] of validMoves) {
+                    let nextMask = curr.mask;
+                    let targetIdx = targetList.findIndex(t => t.r === nr && t.c === nc);
+                    if (targetIdx !== -1) {
+                        nextMask |= (1 << targetIdx);
                     }
 
-                    cell.addEventListener('pointerdown', (e) => {
-                        e.preventDefault();
-                        handleCellTap(r, c);
-                    });
+                    let nextPiece = (currentMode === 'MIX')
+                        ? (curr.piece === 'KNIGHT' ? 'BISHOP' : 'KNIGHT')
+                        : curr.piece;
+                    let stateKey = `${nr},${nc},${nextPiece},${nextMask}`;
 
-                    boardEl.appendChild(cell);
+                    if (!visited.has(stateKey)) {
+                        visited.add(stateKey);
+                        queue.push({
+                            r: nr,
+                            c: nc,
+                            piece: nextPiece,
+                            mask: nextMask,
+                            path: [...curr.path, { r: nr, c: nc, usedPiece: curr.piece }]
+                        });
+                    }
                 }
             }
-
-            remTargetsEl.textContent = targets.length;
-            moveCountEl.textContent = moveCount;
+            return null;
         }
 
-        function handleCellTap(r, c) {
-            if (stageClear) return;
-            if (r === pieceR && c === pieceC) return;
+        function toggleSolution() {
+            if (!optimalPath || optimalPath.length === 0) return;
 
-            const validMoves = getValidMoves(pieceR, pieceC, currentPiece);
-            const isValid = validMoves.some(m => m[0] === r && m[1] === c);
+            showingSolution = !showingSolution;
+            solBtn.classList.toggle('sol-active', showingSolution);
 
-            if (!isValid) {
-                const errMsg = currentPiece === 'KNIGHT'
-                    ? 'そこはナイトのL字（2×1）ではありません！'
-                    : 'そこはビショップの斜めラインではありません！';
-                messageEl.textContent = errMsg;
-                setTimeout(updateStatusMessage, 1100);
-                return;
-            }
+            if (showingSolution) {
+                const startCoord = toCoord(initialStartR, initialStartC);
+                const stepsStr = optimalPath.map((step, idx) => {
+                    const icon = step.usedPiece === 'KNIGHT' ? '♞' : '♝';
+                    return `${idx + 1}.${icon}${toCoord(step.r, step.c)}`;
+                }).join(' → ');
 
-            // 移動実行
-            pieceR = r;
-            pieceC = c;
-            moveCount++;
-
-            // ターゲット回収判定
-            targets = targets.filter(t => !(t.r === r && t.c === c));
-
-            // MIXモードの場合は駒を交互に切り替え
-            if (mode === 'MIX') {
-                currentPiece = (currentPiece === 'KNIGHT') ? 'BISHOP' : 'KNIGHT';
-            }
-
-            if (targets.length === 0) {
-                stageClear = true;
-                const key = `hunter_best_${mode}`;
-                const prevBest = parseInt(localStorage.getItem(key) || '999');
-                let recordText = '';
-                if (moveCount < prevBest) {
-                    localStorage.setItem(key, moveCount);
-                    recordText = '（🎉 自己ベスト更新！）';
-                }
-                updateBestDisplay();
-                messageEl.textContent = `クリア！ ${moveCount}手で全回収 ${recordText}`;
+                solTextEl.innerHTML = `<strong>【最短 ${optimalPath.length}手 ルート】</strong><br>開始(${startCoord}) → ${stepsStr}`;
+                solTextEl.style.display = 'block';
+                messageEl.textContent = '📖 初期配置からの最短ルートを表示中';
             } else {
-                updateStatusMessage();
+                solTextEl.style.display = 'none';
+                if (stageClear) {
+                    messageEl.textContent = `クリア！ ${moveCount}手で全回収（目標: ${optimalPath.length}手）`;
+                } else {
+                    updateStatusMessage();
+                }
             }
-
             renderBoard();
         }
 
-        initCoordinates();
-        initGame();
-    </script>
-</body>
-</html>
+        function updateStatusMessage() {
+            if (stageClear) return;
+            if (mode === 'MIX') {
+                const pName = currentPiece === 'KNIGHT' ? '♞ナイト
