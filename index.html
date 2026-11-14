@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Knight & Bishop Hunter</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100dvh;
+        }
+        h1 {
+            font-size: 1.15rem;
+            margin: 4px 0;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .subtitle {
+            font-size: 0.72rem;
+            color: #888;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .mode-selector {
+            display: flex;
+            background: #1e1e1e;
+            padding: 3px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #333;
+            width: 88vw;
+            max-width: 360px;
+        }
+        .mode-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #888;
+            padding: 6px 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .mode-btn.active {
+            background: #d97706;
+            color: #fff;
+        }
+        .info-panel {
+            display: flex;
+            justify-content: space-around;
+            width: 88vw;
+            max-width: 360px;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            background: #1e1e1e;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        .info-val {
+            font-weight: bold;
+            color: #2a9d8f;
+        }
+        /* 座標を含めた盤面コンテナ */
+        .board-wrapper {
+            background: #242424;
+            padding: 8px 12px 6px 6px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            margin-bottom: 8px;
+            border: 1px solid #333;
+        }
+        .board-middle {
+            display: flex;
+            align-items: stretch;
+        }
+        .rank-labels {
+            display: grid;
+            grid-template-rows: repeat(8, 1fr);
+            padding-right: 6px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: #888;
+            text-align: center;
+        }
+        .rank-labels div {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            gap: 2px;
+            width: 80vw;
+            max-width: 340px;
+            height: 80vw;
+            max-height: 340px;
+            background-color: #1a1a1a;
+            padding: 2px;
+            border-radius: 4px;
+        }
+        .file-labels {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            padding-left: 18px;
+            padding-top: 5px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: #888;
+            text-align: center;
+        }
+        .cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.55rem;
+            cursor: pointer;
+            position: relative;
+            border-radius: 2px;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        .cell.light {
+            background-color: #f0d9b5;
+        }
+        .cell.dark {
+            background-color: #b58863;
+        }
+        .cell.current-knight {
+            background-color: #e63946 !important;
+            color: #fff;
+        }
+        .cell.current-bishop {
+            background-color: #2563eb !important;
+            color: #fff;
+        }
+        .cell.target::before {
+            content: '★';
+            font-size: 1.25rem;
+            color: #d97706;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+            z-index: 1;
+        }
+        .cell.dark.target::before {
+            color: #fde047;
+        }
+        .cell.valid-move::after {
+            content: '';
+            width: 10px;
+            height: 10px;
+            background-color: #2a9d8f;
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 0 6px #2a9d8f;
+            z-index: 2;
+        }
+        .cell.target.valid-move::after {
+            width: 26px;
+            height: 26px;
+            background-color: transparent;
+            border: 3px solid #2a9d8f;
+            border-radius: 50%;
+        }
+        #message {
+            margin: 4px 0 8px 0;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #ffb703;
+            min-height: 1.2rem;
+            text-align: center;
+        }
+        .btn-container {
+            display: flex;
+            gap: 8px;
+            width: 88vw;
+            max-width: 360px;
+        }
+        button.action-btn {
+            flex: 1;
+            background-color: #333;
+            color: #fff;
+            border: none;
+            padding: 10px 4px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        button.action-btn:active {
+            background-color: #444;
+            transform: scale(0.98);
+        }
+        button.primary {
+            background-color: #2a9d8f;
+        }
+        button.guide-on {
+            background-color: #3b4252;
+            border: 1px solid #2a9d8f;
+            color: #2a9d8f;
+        }
+    </style>
+</head>
+<body>
+
+    <h1><span>♞♝</span> Piece Hunter</h1>
+    <div class="subtitle">全5個の★を最短手数で回収せよ（無音・オフライン）</div>
+
+    <div class="mode-selector">
+        <button id="mode-knight" class="mode-btn active" onclick="setMode('KNIGHT')">♞ KNIGHT</button>
+        <button id="mode-bishop" class="mode-btn" onclick="setMode('BISHOP')">♝ BISHOP</button>
+        <button id="mode-mix" class="mode-btn" onclick="setMode('MIX')">♞⇄♝ MIX</button>
+    </div>
+    
+    <div class="info-panel">
+        <div>残り★: <span id="rem-targets" class="info-val">5</span>/5</div>
+        <div>手数: <span id="move-count" class="info-val">0</span></div>
+        <div>最短記録: <span id="best-moves" class="info-val">--</span></div>
+    </div>
+
+    <div class="board-wrapper">
+        <div class="board-middle">
+            <div id="rank-labels" class="rank-labels"></div>
+            <div id="board" class="board"></div>
+        </div>
+        <div id="file-labels" class="file-labels"></div>
+    </div>
+
+    <div id="message">緑のドット（または★）をタップして移動</div>
+
+    <div class="btn-container">
+        <button id="guide-btn" class="action-btn guide-on" onclick="toggleGuide()">ガイド: ON</button>
+        <button class="action-btn primary" onclick="initGame()">新しい配置</button>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 8;
+        const TARGET_TOTAL = 5;
+
+        let mode = 'KNIGHT'; // 'KNIGHT' | 'BISHOP' | 'MIX'
+        let currentPiece = 'KNIGHT'; // 'KNIGHT' | 'BISHOP'
+        let pieceR = 4;
+        let pieceC = 4;
+        let targets = []; // [{r, c}]
+        let moveCount = 0;
+        let showGuide = true;
+        let stageClear = false;
+
+        const boardEl = document.getElementById('board');
+        const rankLabelsEl = document.getElementById('rank-labels');
+        const fileLabelsEl = document.getElementById('file-labels');
+        const remTargetsEl = document.getElementById('rem-targets');
+        const moveCountEl = document.getElementById('move-count');
+        const bestMovesEl = document.getElementById('best-moves');
+        const messageEl = document.getElementById('message');
+        const guideBtn = document.getElementById('guide-btn');
+
+        const knightOffsets = [
+            [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+            [1, -2], [1, 2], [2, -1], [2, 1]
+        ];
+        const bishopDirs = [
+            [-1, -1], [-1, 1], [1, -1], [1, 1]
+        ];
+
+        function initCoordinates() {
+            rankLabelsEl.innerHTML = '';
+            fileLabelsEl.innerHTML = '';
+            for (let i = 8; i >= 1; i--) {
+                const div = document.createElement('div');
+                div.textContent = i;
+                rankLabelsEl.appendChild(div);
+            }
+            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+            for (let i = 0; i < 8; i++) {
+                const div = document.createElement('div');
+                div.textContent = letters[i];
+                fileLabelsEl.appendChild(div);
+            }
+        }
+
+        function setMode(newMode) {
+            mode = newMode;
+            document.getElementById('mode-knight').classList.toggle('active', mode === 'KNIGHT');
+            document.getElementById('mode-bishop').classList.toggle('active', mode === 'BISHOP');
+            document.getElementById('mode-mix').classList.toggle('active', mode === 'MIX');
+            initGame();
+        }
+
+        function toggleGuide() {
+            showGuide = !showGuide;
+            guideBtn.textContent = showGuide ? 'ガイド: ON' : 'ガイド: OFF';
+            guideBtn.classList.toggle('guide-on', showGuide);
+            renderBoard();
+        }
+
+        function updateBestDisplay() {
+            const best = localStorage.getItem(`hunter_best_${mode}`);
+            bestMovesEl.textContent = best ? `${best}手` : '--';
+        }
+
+        function initGame() {
+            moveCount = 0;
+            stageClear = false;
+            currentPiece = (mode === 'BISHOP') ? 'BISHOP' : 'KNIGHT';
+
+            // 初期位置をランダム決定
+            pieceR = Math.floor(Math.random() * BOARD_SIZE);
+            pieceC = Math.floor(Math.random() * BOARD_SIZE);
+            const startParity = (pieceR + pieceC) % 2;
+
+            // ターゲット5個を重複なく生成
+            targets = [];
+            while (targets.length < TARGET_TOTAL) {
+                const r = Math.floor(Math.random() * BOARD_SIZE);
+                const c = Math.floor(Math.random() * BOARD_SIZE);
+                if (r === pieceR && c === pieceC) continue;
+                if (targets.some(t => t.r === r && t.c === c)) continue;
+
+                // BISHOPモード時は開始マスと同じ色のマスのみに配置
+                if (mode === 'BISHOP' && (r + c) % 2 !== startParity) continue;
+
+                targets.push({ r, c });
+            }
+
+            updateBestDisplay();
+            updateStatusMessage();
+            renderBoard();
+        }
+
+        function updateStatusMessage() {
+            if (stageClear) return;
+            if (mode === 'MIX') {
+                const pName = currentPiece === 'KNIGHT' ? '♞ナイト（L字）' : '♝ビショップ（斜め）';
+                messageEl.textContent = `次は ${pName} の動きで移動！`;
+            } else if (mode === 'KNIGHT') {
+                messageEl.textContent = '♞ ナイトのL字移動で★をすべて回収しよう';
+            } else {
+                messageEl.textContent = '♝ ビショップの斜め移動で★をすべて回収しよう';
+            }
+        }
+
+        function getValidMoves(r, c, pieceType) {
+            const moves = [];
+            if (pieceType === 'KNIGHT') {
+                for (const [dr, dc] of knightOffsets) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        moves.push([nr, nc]);
+                    }
+                }
+            } else {
+                for (const [dr, dc] of bishopDirs) {
+                    let nr = r + dr;
+                    let nc = c + dc;
+                    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        moves.push([nr, nc]);
+                        nr += dr;
+                        nc += dc;
+                    }
+                }
+            }
+            return moves;
+        }
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            const validMoves = stageClear ? [] : getValidMoves(pieceR, pieceC, currentPiece);
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+
+                    if (r === pieceR && c === pieceC) {
+                        if (currentPiece === 'KNIGHT') {
+                            cell.classList.add('current-knight');
+                            cell.textContent = '♞';
+                        } else {
+                            cell.classList.add('current-bishop');
+                            cell.textContent = '♝';
+                        }
+                    } else {
+                        if (targets.some(t => t.r === r && t.c === c)) {
+                            cell.classList.add('target');
+                        }
+                        if (showGuide && validMoves.some(m => m[0] === r && m[1] === c)) {
+                            cell.classList.add('valid-move');
+                        }
+                    }
+
+                    cell.addEventListener('pointerdown', (e) => {
+                        e.preventDefault();
+                        handleCellTap(r, c);
+                    });
+
+                    boardEl.appendChild(cell);
+                }
+            }
+
+            remTargetsEl.textContent = targets.length;
+            moveCountEl.textContent = moveCount;
+        }
+
+        function handleCellTap(r, c) {
+            if (stageClear) return;
+            if (r === pieceR && c === pieceC) return;
+
+            const validMoves = getValidMoves(pieceR, pieceC, currentPiece);
+            const isValid = validMoves.some(m => m[0] === r && m[1] === c);
+
+            if (!isValid) {
+                const errMsg = currentPiece === 'KNIGHT'
+                    ? 'そこはナイトのL字（2×1）ではありません！'
+                    : 'そこはビショップの斜めラインではありません！';
+                messageEl.textContent = errMsg;
+                setTimeout(updateStatusMessage, 1100);
+                return;
+            }
+
+            // 移動実行
+            pieceR = r;
+            pieceC = c;
+            moveCount++;
+
+            // ターゲット回収判定
+            targets = targets.filter(t => !(t.r === r && t.c === c));
+
+            // MIXモードの場合は駒を交互に切り替え
+            if (mode === 'MIX') {
+                currentPiece = (currentPiece === 'KNIGHT') ? 'BISHOP' : 'KNIGHT';
+            }
+
+            if (targets.length === 0) {
+                stageClear = true;
+                const key = `hunter_best_${mode}`;
+                const prevBest = parseInt(localStorage.getItem(key) || '999');
+                let recordText = '';
+                if (moveCount < prevBest) {
+                    localStorage.setItem(key, moveCount);
+                    recordText = '（🎉 自己ベスト更新！）';
+                }
+                updateBestDisplay();
+                messageEl.textContent = `クリア！ ${moveCount}手で全回収 ${recordText}`;
+            } else {
+                updateStatusMessage();
+            }
+
+            renderBoard();
+        }
+
+        initCoordinates();
+        initGame();
+    </script>
+</body>
+</html>
