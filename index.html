@@ -81,7 +81,6 @@
         .info-val.target {
             color: #ffb703;
         }
-        /* 座標を含めた盤面コンテナ */
         .board-wrapper {
             background: #242424;
             padding: 8px 12px 6px 6px;
@@ -183,7 +182,6 @@
             border: 3px solid #2a9d8f;
             border-radius: 50%;
         }
-        /* 最適解表示用のスタイル */
         .cell.sol-step {
             box-shadow: inset 0 0 0 3px #38bdf8;
         }
@@ -276,7 +274,7 @@
     <div class="info-panel">
         <div>残り★: <span id="rem-targets" class="info-val">5</span>/5</div>
         <div>手数: <span id="move-count" class="info-val">0</span></div>
-        <div>目標: <span id="target-moves" class="info-val target">--</span>手</div>
+        <div>目標: <span id="target-moves" class="info-val target">5</span>手</div>
         <div>自己ベスト: <span id="best-moves" class="info-val">--</span></div>
     </div>
 
@@ -311,11 +309,10 @@
         let showGuide = true;
         let stageClear = false;
 
-        // 初期状態と最適解の保持用
         let initialStartR = 0;
         let initialStartC = 0;
         let initialTargets = [];
-        let optimalPath = []; // [{r, c, piece}]
+        let optimalPath = []; 
         let showingSolution = false;
 
         const boardEl = document.getElementById('board');
@@ -386,88 +383,69 @@
 
             currentPiece = (mode === 'BISHOP') ? 'BISHOP' : 'KNIGHT';
 
-            // 確実に解が存在する配置を生成
-            let foundPath = null;
-            while (!foundPath) {
+            // フリーズを防ぐため、確実に一瞬で繋がるランダムウォーク方式でステージを構築
+            let validSetup = false;
+            let maxTry = 100;
+
+            while (!validSetup && maxTry > 0) {
+                maxTry--;
                 pieceR = Math.floor(Math.random() * BOARD_SIZE);
                 pieceC = Math.floor(Math.random() * BOARD_SIZE);
                 const startParity = (pieceR + pieceC) % 2;
 
-                targets = [];
-                while (targets.length < TARGET_TOTAL) {
-                    const r = Math.floor(Math.random() * BOARD_SIZE);
-                    const c = Math.floor(Math.random() * BOARD_SIZE);
-                    if (r === pieceR && c === pieceC) continue;
-                    if (targets.some(t => t.r === r && t.c === c)) continue;
-                    if (mode === 'BISHOP' && (r + c) % 2 !== startParity) continue;
-                    targets.push({ r, c });
+                let currR = pieceR;
+                let currC = pieceC;
+                let currP = currentPiece;
+                let tempTargets = [];
+                let tempPath = [];
+                let failed = false;
+
+                for (let i = 0; i < TARGET_TOTAL; i++) {
+                    let moves = getValidMoves(currR, currC, currP);
+                    if (mode === 'BISHOP') {
+                        moves = moves.filter(m => (m[0] + m[1]) % 2 === startParity);
+                    }
+                    // すでに訪れていない場所を優先
+                    moves = moves.filter(m => !tempTargets.some(t => t.r === m[0] && t.c === m[1]) && !(m[0] === pieceR && m[1] === pieceC));
+                    
+                    if (moves.length === 0) {
+                        failed = true;
+                        break;
+                    }
+                    let next = moves[Math.floor(Math.random() * moves.length)];
+                    tempTargets.push({ r: next[0], c: next[1] });
+                    tempPath.push({ r: next[0], c: next[1], usedPiece: currP });
+                    
+                    currR = next[0];
+                    currC = next[1];
+                    if (mode === 'MIX') {
+                        currP = (currP === 'KNIGHT') ? 'BISHOP' : 'KNIGHT';
+                    }
                 }
 
-                foundPath = findOptimalPath(pieceR, pieceC, targets, currentPiece, mode);
+                if (!failed && tempTargets.length === TARGET_TOTAL) {
+                    targets = tempTargets;
+                    optimalPath = tempPath;
+                    validSetup = true;
+                }
+            }
+
+            // 万が一フォールバック
+            if (!validSetup) {
+                pieceR = 3; pieceC = 3;
+                targets = [{r:1, c:2}, {r:2, c:4}, {r:4, c:5}, {r:6, c:4}, {r:5, c:2}];
+                optimalPath = targets.map((t, idx) => ({r: t.r, c: t.c, usedPiece: currentPiece}));
             }
 
             initialStartR = pieceR;
             initialStartC = pieceC;
             initialTargets = targets.map(t => ({ ...t }));
-            optimalPath = foundPath;
 
             targetMovesEl.textContent = optimalPath.length;
 
             updateBestDisplay();
             updateStatusMessage();
             renderBoard();
-        }
-
-        // BFS（幅優先探索）で全★回収の最短経路そのものを求める
-        function findOptimalPath(startR, startC, targetList, initialPiece, currentMode) {
-            let queue = [{
-                r: startR,
-                c: startC,
-                piece: initialPiece,
-                mask: 0,
-                path: []
-            }];
-            let visited = new Set();
-            let fullMask = (1 << targetList.length) - 1;
-
-            visited.add(`${startR},${startC},${initialPiece},0`);
-
-            let iterations = 0;
-            while (queue.length > 0 && iterations < 35000) {
-                let curr = queue.shift();
-                iterations++;
-
-                if (curr.mask === fullMask) {
-                    return curr.path;
-                }
-
-                let validMoves = getValidMoves(curr.r, curr.c, curr.piece);
-
-                for (let [nr, nc] of validMoves) {
-                    let nextMask = curr.mask;
-                    let targetIdx = targetList.findIndex(t => t.r === nr && t.c === nc);
-                    if (targetIdx !== -1) {
-                        nextMask |= (1 << targetIdx);
-                    }
-
-                    let nextPiece = (currentMode === 'MIX')
-                        ? (curr.piece === 'KNIGHT' ? 'BISHOP' : 'KNIGHT')
-                        : curr.piece;
-                    let stateKey = `${nr},${nc},${nextPiece},${nextMask}`;
-
-                    if (!visited.has(stateKey)) {
-                        visited.add(stateKey);
-                        queue.push({
-                            r: nr,
-                            c: nc,
-                            piece: nextPiece,
-                            mask: nextMask,
-                            path: [...curr.path, { r: nr, c: nc, usedPiece: curr.piece }]
-                        });
-                    }
-                }
-            }
-            return null;
         }
 
         function toggleSolution() {
@@ -483,13 +461,13 @@
                     return `${idx + 1}.${icon}${toCoord(step.r, step.c)}`;
                 }).join(' → ');
 
-                solTextEl.innerHTML = `<strong>【最短 ${optimalPath.length}手 ルート】</strong><br>開始(${startCoord}) → ${stepsStr}`;
+                solTextEl.innerHTML = `<strong>【模範ルート】</strong><br>開始(${startCoord}) → ${stepsStr}`;
                 solTextEl.style.display = 'block';
-                messageEl.textContent = '📖 初期配置からの最短ルートを表示中';
+                messageEl.textContent = '📖 模範ルートを表示中';
             } else {
                 solTextEl.style.display = 'none';
                 if (stageClear) {
-                    messageEl.textContent = `クリア！ ${moveCount}手で全回収（目標: ${optimalPath.length}手）`;
+                    messageEl.textContent = `クリア！ ${moveCount}手で全回収`;
                 } else {
                     updateStatusMessage();
                 }
@@ -500,4 +478,150 @@
         function updateStatusMessage() {
             if (stageClear) return;
             if (mode === 'MIX') {
-                const pName = currentPiece === 'KNIGHT' ? '♞ナイト
+                const pName = currentPiece === 'KNIGHT' ? '♞ナイト（L字）' : '♝ビショップ（斜め）';
+                messageEl.textContent = `次は ${pName} の動きで移動！`;
+            } else if (mode === 'KNIGHT') {
+                messageEl.textContent = '♞ ナイトのL字移動で★をすべて回収しよう';
+            } else {
+                messageEl.textContent = '♝ ビショップの斜め移動で★をすべて回収しよう';
+            }
+        }
+
+        function getValidMoves(r, c, pieceType) {
+            const moves = [];
+            if (pieceType === 'KNIGHT') {
+                for (const [dr, dc] of knightOffsets) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        moves.push([nr, nc]);
+                    }
+                }
+            } else {
+                for (const [dr, dc] of bishopDirs) {
+                    let nr = r + dr;
+                    let nc = c + dc;
+                    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        moves.push([nr, nc]);
+                        nr += dr;
+                        nc += dc;
+                    }
+                }
+            }
+            return moves;
+        }
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+
+            const dispR = showingSolution ? initialStartR : pieceR;
+            const dispC = showingSolution ? initialStartC : pieceC;
+            const dispTargets = showingSolution ? initialTargets : targets;
+            const dispPiece = showingSolution ? ((mode === 'BISHOP') ? 'BISHOP' : 'KNIGHT') : currentPiece;
+
+            const validMoves = (stageClear || showingSolution) ? [] : getValidMoves(dispR, dispC, dispPiece);
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+
+                    if (r === dispR && c === dispC) {
+                        if (dispPiece === 'KNIGHT') {
+                            cell.classList.add('current-knight');
+                            cell.textContent = '♞';
+                        } else {
+                            cell.classList.add('current-bishop');
+                            cell.textContent = '♝';
+                        }
+                    } else {
+                        if (dispTargets.some(t => t.r === r && t.c === c)) {
+                            cell.classList.add('target');
+                        }
+                        if (showGuide && validMoves.some(m => m[0] === r && m[1] === c)) {
+                            cell.classList.add('valid-move');
+                        }
+                    }
+
+                    if (showingSolution) {
+                        const matchedSteps = [];
+                        optimalPath.forEach((step, idx) => {
+                            if (step.r === r && step.c === c) {
+                                matchedSteps.push(idx + 1);
+                            }
+                        });
+                        if (matchedSteps.length > 0) {
+                            cell.classList.add('sol-step');
+                            const badge = document.createElement('span');
+                            badge.className = 'sol-badge';
+                            badge.textContent = matchedSteps.join(',');
+                            cell.appendChild(badge);
+                        }
+                    }
+
+                    cell.addEventListener('pointerdown', (e) => {
+                        e.preventDefault();
+                        handleCellTap(r, c);
+                    });
+
+                    boardEl.appendChild(cell);
+                }
+            }
+
+            remTargetsEl.textContent = targets.length;
+            moveCountEl.textContent = moveCount;
+        }
+
+        function handleCellTap(r, c) {
+            if (showingSolution) {
+                toggleSolution();
+                return;
+            }
+            if (stageClear) return;
+            if (r === pieceR && c === pieceC) return;
+
+            const validMoves = getValidMoves(pieceR, pieceC, currentPiece);
+            const isValid = validMoves.some(m => m[0] === r && m[1] === c);
+
+            if (!isValid) {
+                const errMsg = currentPiece === 'KNIGHT'
+                    ? 'そこはナイトのL字（2×1）ではありません！'
+                    : 'そこはビショップの斜めラインではありません！';
+                messageEl.textContent = errMsg;
+                setTimeout(updateStatusMessage, 1100);
+                return;
+            }
+
+            pieceR = r;
+            pieceC = c;
+            moveCount++;
+
+            targets = targets.filter(t => !(t.r === r && t.c === c));
+
+            if (mode === 'MIX') {
+                currentPiece = (currentPiece === 'KNIGHT') ? 'BISHOP' : 'KNIGHT';
+            }
+
+            if (targets.length === 0) {
+                stageClear = true;
+                const key = `hunter_best_${mode}`;
+                const prevBest = parseInt(localStorage.getItem(key) || '999');
+                let recordText = '';
+                if (moveCount < prevBest) {
+                    localStorage.setItem(key, moveCount);
+                    recordText = '（🎉 自己ベスト更新！）';
+                }
+                updateBestDisplay();
+                messageEl.textContent = `クリア！ ${moveCount}手で全回収 ${recordText}`;
+            } else {
+                updateStatusMessage();
+            }
+
+            renderBoard();
+        }
+
+        initCoordinates();
+        initGame();
+    </script>
+</body>
+</html>
